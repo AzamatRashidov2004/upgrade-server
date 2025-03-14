@@ -2,53 +2,52 @@ const mongoose = require("mongoose");
 const { Schema } = mongoose;
 
 const productSchema = new Schema({
-  url: { type: String, unique: true, required: true },
-  product_title: { type: String, required: true },
-  category: {
+  device_type: {
     type: String,
     enum: ["iPhone", "MacBook", "iPad"],
     required: true,
   },
-  specifications: {
-    conditions: [
-      {
-        condition: { type: String, required: true },
-        detail: { type: Number },
-        is_available: { type: Boolean, default: true },
-      },
-    ],
-    processors: [
-      {
-        name: { type: String, required: true },
-        detail: { type: Number },
-        is_available: { type: Boolean, default: true },
-      },
-    ],
-    memories: [
-      {
-        size: { type: String, required: true },
-        detail: { type: Number },
-        is_available: { type: Boolean, default: true },
-      },
-    ],
-    storage_options: [
-      {
-        capacity: { type: String, required: true },
-        detail: { type: Number },
-        is_available: { type: Boolean, default: true },
-      },
-    ],
-    color_options: [
-      {
-        name: { type: String, required: true },
-        hex_code: { type: String },
-        detail: { type: Number },
-        is_available: { type: Boolean, default: true },
-      },
-    ],
+  model: { 
+    type: String, 
+    required: true 
   },
-  created_at: { type: Date, default: Date.now },
-  updated_at: { type: Date, default: Date.now },
+  price: { 
+    type: Number, 
+    required: true 
+  },
+  image: { 
+    type: String 
+  },
+  condition: { 
+    type: String, 
+    required: true 
+  },
+  battery: { 
+    type: String, 
+    required: true 
+  },
+  color: { 
+    type: String, 
+    required: true 
+  },
+  // For iPhones and MacBooks, storage is numeric, for iPads it can be a string (e.g., "64GB")
+  storage: { 
+    type: Schema.Types.Mixed, 
+    required: true 
+  },
+  // Only applicable for MacBooks
+  ram: { 
+    type: Number 
+  },
+  cpu: { 
+    type: String 
+  },
+  // Only applicable for iPads
+  connectivity: { 
+    type: String 
+  }
+}, { 
+  timestamps: true 
 });
 
 module.exports = mongoose.model("Product", productSchema);

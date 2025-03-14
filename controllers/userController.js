@@ -7,8 +7,7 @@ exports.createUser = async (req, res) => {
     const user = new User(req.body);
     await user.save();
 
-    const token = await user.generateAuthToken();
-    res.status(201).json({ user, token });
+    res.status(201).json({ user });
   } catch (error) {
     res.status(400).json({ error: error.message });
   }
@@ -82,7 +81,10 @@ exports.getUserOrders = async (req, res) => {
   try {
     const orders = await Order.find({ user: req.params.id })
       .sort("-created_at")
-      .populate("items.product", "product_title");
+      .populate(
+        "items.product",
+        "model device_type price image condition battery color storage cpu ram connectivity"
+      );
 
     res.json(orders);
   } catch (error) {

@@ -9,10 +9,19 @@ const {
 
 const router = express.Router();
 
+// Create user
 router.post("/", createUser);
-router.get("/:id", getUser);
-router.put("/:id", updateUser);
-router.delete("/:id", deleteUser);
+
+// Get user orders should come before the generic get user route
 router.get("/:id/orders", getUserOrders);
+
+// Get user profile
+router.get("/:id", getUser);
+
+// Update user
+router.put("/:id", updateUser);
+
+// Delete user
+router.delete("/:id", deleteUser);
 
 module.exports = router;

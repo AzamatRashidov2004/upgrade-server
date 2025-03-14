@@ -7,7 +7,7 @@ exports.getOrder = async (req, res) => {
   try {
     const order = await Order.findById(req.params.id)
       .populate("user", "name email")
-      .populate("items.product", "product_title");
+      .populate("items.product", "model device_type price image condition battery color storage cpu ram connectivity");
 
     if (!order) {
       return res.status(404).json({ error: "Order not found" });
@@ -24,13 +24,45 @@ exports.getOrdersByUser = async (req, res) => {
   try {
     const orders = await Order.find({ user: req.params.userId })
       .sort("-created_at")
-      .populate("items.product", "product_title");
+      .populate("items.product", "model device_type price image condition battery color storage cpu ram connectivity");
 
     res.json(orders);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
 };
+
+// Get all orders of all users ( ADMIN )
+exports.getOrdersGroupedByUser = async (req, res) => {
+  try {
+    // Fetch all orders and populate user and product details for each order item
+    const orders = await Order.find({})
+      .populate("user", "name email")
+      .populate("items.product", "model device_type price image condition battery color storage cpu ram connectivity")
+      .sort("-created_at");
+
+    // Group orders by user id
+    const ordersByUser = orders.reduce((acc, order) => {
+      const userId = order.user._id.toString();
+      if (!acc[userId]) {
+        acc[userId] = {
+          user: order.user,
+          orders: []
+        };
+      }
+      acc[userId].orders.push(order);
+      return acc;
+    }, {});
+
+    // Convert the grouped object into an array
+    const result = Object.values(ordersByUser);
+
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
 
 // Delete order
 exports.deleteOrder = async (req, res) => {
@@ -62,21 +94,45 @@ exports.createOrder = async (req, res) => {
     const user = await User.findById(userId);
     if (!user) return res.status(404).json({ error: "User not found" });
 
-    // Validate items
+    let totalAmount = 0;
+
+    // Validate items and configuration
     for (const item of items) {
       const product = await Product.findById(item.productId);
       if (!product)
-        return res
-          .status(404)
-          .json({ error: `Product ${item.productId} not found` });
+        return res.status(404).json({ error: `Product ${item.productId} not found` });
 
-      // Check configuration availability
-      const config = product.specifications;
-      const validCondition = config.conditions.some(
-        (c) => c.condition === item.configuration.condition && c.is_available
-      );
-      if (!validCondition)
-        return res.status(400).json({ error: "Invalid configuration" });
+      // Validate common fields
+      if (product.condition !== item.configuration.condition) {
+        return res.status(400).json({ error: "Invalid configuration: condition mismatch" });
+      }
+      
+      // Compare storage as strings to handle potential type differences (number vs string)
+      if (String(product.storage) !== String(item.configuration.storage)) {
+        return res.status(400).json({ error: "Invalid configuration: storage mismatch" });
+      }
+      
+      if (product.color !== item.configuration.color) {
+        return res.status(400).json({ error: "Invalid configuration: color mismatch" });
+      }
+      
+      // For MacBooks, validate cpu and ram if provided
+      if (product.device_type === "MacBook") {
+        if (item.configuration.cpu && product.cpu !== item.configuration.cpu) {
+          return res.status(400).json({ error: "Invalid configuration: CPU mismatch" });
+        }
+        if (item.configuration.ram && product.ram !== item.configuration.ram) {
+          return res.status(400).json({ error: "Invalid configuration: RAM mismatch" });
+        }
+      }
+      
+      // For iPads, validate connectivity if provided
+      if (product.device_type === "iPad") {
+        if (item.configuration.connectivity && product.connectivity !== item.configuration.connectivity) {
+          return res.status(400).json({ error: "Invalid configuration: connectivity mismatch" });
+        }
+      }
+      totalAmount += item.price * item.quantity;
     }
 
     // Create order
@@ -90,6 +146,7 @@ exports.createOrder = async (req, res) => {
       })),
       shipping_address: shippingAddress,
       status: "pending",
+      total_amount: totalAmount,
     });
 
     await order.save();
@@ -113,7 +170,7 @@ exports.updateOrder = async (req, res) => {
       { new: true }
     );
 
-    // If order is completed, move to purchase history
+    // If order is delivered, move to purchase history and clear current order
     if (req.body.status === "delivered") {
       const user = await User.findById(order.user);
       user.purchase_history.push(order._id);
