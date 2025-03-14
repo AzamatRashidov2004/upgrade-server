@@ -11,6 +11,14 @@ const connectDB = require("./connect");
 console.log("Current MONGO_URI:", process.env.MONGO_URI);
 console.log("Current NODE_ENV:", process.env.NODE_ENV);
 
+// Helper function to shuffle an array (Fisher–Yates)
+const shuffleArray = (array) => {
+  for (let i = array.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [array[i], array[j]] = [array[j], array[i]];
+  }
+  return array;
+};
 
 // First verify connection
 async function runImport() {
@@ -42,7 +50,7 @@ const importData = async () => {
     const filePath = path.join(__dirname, "result.json");
     console.log("Reading file from:", filePath);
     const rawData = fs.readFileSync(filePath, "utf8");
-    console.log("Found", rawData, "raw products");
+    console.log("Found raw data for products");
     const productsData = JSON.parse(rawData);
     
     // Extract products from the nested structure
@@ -54,19 +62,21 @@ const importData = async () => {
     
     console.log("Found", allProducts.length, "raw products");
     
+    // Shuffle the products array
+    const shuffledProducts = shuffleArray(allProducts);
+    
     // Import in batches to avoid memory issues
     const batchSize = 1000;
     let insertedCount = 0;
     
-    for (let i = 0; i < allProducts.length; i += batchSize) {
-      const batch = allProducts.slice(i, i + batchSize);
-      console.log(`Inserting batch ${i/batchSize + 1}/${Math.ceil(allProducts.length/batchSize)} (${batch.length} products)...`);
+    for (let i = 0; i < shuffledProducts.length; i += batchSize) {
+      const batch = shuffledProducts.slice(i, i + batchSize);
+      console.log(`Inserting batch ${i/batchSize + 1}/${Math.ceil(shuffledProducts.length/batchSize)} (${batch.length} products)...`);
       
       try {
         const result = await Product.insertMany(batch, { 
           ordered: false,
-          // Add this to see validation errors
-          rawResult: true 
+          rawResult: true // Add this to see validation errors
         });
         insertedCount += result.insertedCount;
         console.log(`Batch inserted: ${result.insertedCount} products`);
@@ -75,7 +85,6 @@ const importData = async () => {
           console.log(`Batch partially inserted: ${err.insertedDocs.length} products`);
           insertedCount += err.insertedDocs.length;
           
-          // Log a sample of the errors
           console.log(`${err.writeErrors.length} errors occurred. Sample errors:`);
           err.writeErrors.slice(0, 3).forEach(writeError => {
             console.log(`- ${writeError.errmsg} for document: ${JSON.stringify(writeError.op)}`);
@@ -89,7 +98,7 @@ const importData = async () => {
     console.log(`Data import completed. Inserted ${insertedCount} out of ${allProducts.length} products`);
   } catch (error) {
     console.error("Error in importData:", error);
-    throw error; // Propagate error to catch block
+    throw error;
   }
 };
 

@@ -246,20 +246,10 @@ exports.getOneFromEachModel = async (req, res) => {
       }
     ]);
 
-    // Structure response by device type
-    const categorizedProducts = {
-      iPhones: products.filter(p => p.device_type === "iPhone"),
-      MacBooks: products.filter(p => p.device_type === "MacBook"),
-      iPads: products.filter(p => p.device_type === "iPad")
-    };
-
     res.json({
       success: true,
       count: products.length,
-      data: {
-        allProducts: products,
-        byCategory: categorizedProducts
-      }
+      data: products,
     });
   } catch (error) {
     res.status(500).json({
