@@ -1,4 +1,3 @@
-// db/importData.js
 const mongoose = require("mongoose");
 const fs = require("fs");
 const path = require("path");
@@ -26,7 +25,6 @@ async function runImport() {
     console.log("Attempting to connect to MongoDB...");
     await connectDB();
     console.log("Successfully connected to MongoDB!");
-
     await importData();
     console.log("Data import completed");
     process.exit(0);
@@ -38,6 +36,7 @@ async function runImport() {
 
 const importData = async () => {
   try {
+    // Drop the collection first as originally done
     console.log("Dropping collection...");
     try {
       await Product.collection.drop();
@@ -62,8 +61,23 @@ const importData = async () => {
     
     console.log("Found", allProducts.length, "raw products");
     
-    // Shuffle the products array
-    const shuffledProducts = shuffleArray(allProducts);
+    // Remove duplicates within the input data using a Map
+    const productMap = new Map();
+    const uniqueProducts = [];
+    
+    for (const product of allProducts) {
+      const key = createProductKey(product);
+      if (!productMap.has(key)) {
+        productMap.set(key, true);
+        uniqueProducts.push(product);
+      }
+    }
+    
+    console.log(`Filtered out ${allProducts.length - uniqueProducts.length} duplicate products from input data`);
+    console.log(`Proceeding with ${uniqueProducts.length} unique products`);
+    
+    // Shuffle the unique products array
+    const shuffledProducts = shuffleArray(uniqueProducts);
     
     // Import in batches to avoid memory issues
     const batchSize = 1000;
@@ -95,12 +109,19 @@ const importData = async () => {
       }
     }
     
-    console.log(`Data import completed. Inserted ${insertedCount} out of ${allProducts.length} products`);
+    console.log(`Data import completed. Inserted ${insertedCount} out of ${uniqueProducts.length} unique products`);
   } catch (error) {
     console.error("Error in importData:", error);
     throw error;
   }
 };
+
+// Function to create a unique key for each product
+function createProductKey(product) {
+  // Adjust these fields based on what makes a product unique in your schema
+  // This example uses name, model, and price as a composite key
+  return `${product.name || ''}-${product.model || ''}-${product.price || ''}`;
+}
 
 // Start the process
 runImport();

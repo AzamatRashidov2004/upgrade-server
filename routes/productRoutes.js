@@ -8,8 +8,12 @@ router.get("/config-options", productController.getConfigOptions);
 // Get one product from each model (cheapest option per model)
 router.get("/unique-models", productController.getOneFromEachModel);
 
+// Get valid product configuration combinations
+router.get("/valid-combinations", productController.getValidCombinations);
+
 // Get a specific product by ID
 router.get("/:id", productController.getProductById);
+
 
 // Get all products with filters & pagination
 router.get("/", productController.getProducts);

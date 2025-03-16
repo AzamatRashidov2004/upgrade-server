@@ -57,20 +57,21 @@ exports.getProducts = async (req, res) => {
 
     // Basic filters
     if (device_type) filter.device_type = device_type;
-    if (model) filter.model = new RegExp(model, "i");
+    if (model) {
+      // Escape regex special characters
+      const escapedModel = model.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      filter.model = new RegExp(`^${escapedModel}$`, "i"); 
+    } 
+    // Add this section for storage filtering
+    if (storage) {
+      // Convert to number if possible
+      const numericValue = Number(storage);
+      filter.storage = isNaN(numericValue) ? storage : numericValue;
+    }
     if (condition) filter.condition = condition;
     if (battery) filter.battery = battery;
     if (color) filter.color = new RegExp(color, "i");
     
-    // Device-specific filters
-    if (storage) {
-      // Handle both numeric and string storage values
-      if (isNaN(storage)) {
-        filter.storage = storage;
-      } else {
-        filter.storage = Number(storage);
-      }
-    }
     
     if (ram) filter.ram = Number(ram);
     if (cpu) filter.cpu = new RegExp(cpu, "i");
@@ -121,6 +122,14 @@ exports.getProducts = async (req, res) => {
  * Input:
  * - URL parameter:
  *   - id: MongoDB ObjectId of the product
+ * - Query parameters (optional):
+ *   - storage: filter by storage capacity
+ *   - color: filter by color
+ *   - condition: filter by condition
+ *   - battery: filter by battery health 
+ *   - ram: filter by RAM (MacBooks only)
+ *   - cpu: filter by CPU (MacBooks only)
+ *   - connectivity: filter by connectivity (iPads only)
  * 
  * Output:
  * - success: boolean indicating success/failure
@@ -139,8 +148,24 @@ exports.getProductById = async (req, res) => {
       });
     }
 
-    // Get configuration options for this model
-    const configOptions = await getConfigurationOptions(product.model, product.device_type);
+    // Extract filter parameters from query
+    const filterParams = {};
+    const { storage, color, condition, battery, ram, cpu, connectivity } = req.query;
+    
+    if (storage) filterParams.storage = isNaN(storage) ? storage : Number(storage);
+    if (color) filterParams.color = color;
+    if (condition) filterParams.condition = condition;
+    if (battery) filterParams.battery = battery;
+    if (ram) filterParams.ram = Number(ram);
+    if (cpu) filterParams.cpu = cpu;
+    if (connectivity) filterParams.connectivity = connectivity;
+
+    // Get configuration options for this model with filters
+    const configOptions = await getConfigurationOptions(
+      product.model, 
+      product.device_type,
+      filterParams
+    );
 
     res.json({
       success: true,
@@ -200,6 +225,80 @@ exports.getConfigOptions = async (req, res) => {
     });
   }
 };
+
+/**
+ * Get valid configuration combinations for a specific model and device type.
+ *
+ * Query parameters:
+ * - model: (required) product model name (exact match)
+ * - device_type: (required) device type ("iPhone", "MacBook", "iPad")
+ *
+ * Output:
+ * - success: boolean indicating success/failure
+ * - count: number of valid combinations
+ * - data: array of combination objects, each containing the fields that define a valid configuration.
+ */
+exports.getValidCombinations = async (req, res) => {
+  try {
+    const { model, device_type } = req.query;
+    
+    // Validate required query parameters
+    if (!model || !device_type) {
+      return res.status(400).json({
+        success: false,
+        error: "Both model and device_type are required"
+      });
+    }
+    
+    // Build the grouping fields based on the device type.
+    // Start with common fields
+    let groupFields = {
+      storage: "$storage",
+      color: "$color",
+      condition: "$condition",
+      battery: "$battery"
+    };
+    
+    // Add device-specific configuration fields
+    if (device_type === "MacBook") {
+      groupFields.ram = "$ram";
+      groupFields.cpu = "$cpu";
+    } else if (device_type === "iPad") {
+      groupFields.connectivity = "$connectivity";
+    }
+    
+    // Aggregate to group by the combination of configuration fields
+    const validCombinations = await Product.aggregate([
+      { $match: { model, device_type } },
+      { 
+        $group: {
+          _id: groupFields
+        }
+      },
+      { 
+        $project: {
+          combination: "$_id",
+          _id: 0
+        }
+      }
+    ]);
+    
+    // Return just the combinations array from the aggregation
+    res.json({
+      success: true,
+      count: validCombinations.length,
+      data: validCombinations.map(item => item.combination)
+    });
+    
+  } catch (error) {
+    console.error("Error in getValidCombinations:", error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+};
+
 
 /**
  * Get one product from each model (the lowest price option)
@@ -333,33 +432,63 @@ exports.addBulkProducts = async (req, res) => {
 
 /**
  * Helper function to get all available configuration options for a specific model
+ * with additional filtering capabilities
  * 
  * Input:
  * - model: product model name (exact match)
  * - deviceType: device type ("iPhone", "MacBook", "iPad")
+ * - filterParams: object containing filter parameters (optional)
+ *   - storage: storage capacity filter
+ *   - color: color filter
+ *   - condition: condition filter
+ *   - battery: battery health filter
+ *   - ram: RAM filter (MacBooks only)
+ *   - cpu: CPU filter (MacBooks only)
+ *   - connectivity: connectivity filter (iPads only)
  * 
  * Output:
  * - Object containing available configuration options:
  *   - storage: array of available storage options
  *   - color: array of available colors
  *   - condition: array of available conditions
+ *   - battery: array of available battery options
  *   - price: object with min and max prices
  *   - ram: array of available RAM options (MacBooks only)
  *   - cpu: array of available CPU options (MacBooks only)
  *   - connectivity: array of available connectivity options (iPads only)
  */
-async function getConfigurationOptions(model, deviceType) {
-  // Query for all products matching the model and device_type
-  const products = await Product.find({ 
+async function getConfigurationOptions(model, deviceType, filterParams = {}) {
+  // Create a filter object with required model and device_type
+  const filter = { 
     model: model,
     device_type: deviceType
-  }).select("-__v");
+  };
+  
+  // Add any additional filters if provided
+  const { storage, color, condition, battery, ram, cpu, connectivity } = filterParams;
+  
+  if (storage !== undefined) filter.storage = isNaN(storage) ? storage : Number(storage);
+  if (color !== undefined) filter.color = color;
+  if (condition !== undefined) filter.condition = condition;
+  if (battery !== undefined) filter.battery = battery;
+  
+  // Device-specific filters
+  if (deviceType === "MacBook") {
+    if (ram !== undefined) filter.ram = ram;
+    if (cpu !== undefined) filter.cpu = cpu;
+  } else if (deviceType === "iPad") {
+    if (connectivity !== undefined) filter.connectivity = connectivity;
+  }
+  
+  // Query for all products matching the filter criteria
+  const products = await Product.find(filter).select("-__v");
   
   // Initialize result object
   let configOptions = {
     storage: [],
     color: [],
     condition: [],
+    battery: [],
     price: { min: Infinity, max: 0 }
   };
 
@@ -384,6 +513,10 @@ async function getConfigurationOptions(model, deviceType) {
     
     if (!configOptions.condition.includes(product.condition)) {
       configOptions.condition.push(product.condition);
+    }
+
+    if (!configOptions.battery.includes(product.battery)) {
+      configOptions.battery.push(product.battery);
     }
     
     // Update price range
@@ -412,6 +545,7 @@ async function getConfigurationOptions(model, deviceType) {
 
   // Sort numeric options
   configOptions.storage = sortOption(configOptions.storage);
+  configOptions.battery = sortOption(configOptions.battery);
   if (deviceType === "MacBook") {
     configOptions.ram = sortOption(configOptions.ram);
   }
@@ -478,4 +612,6 @@ function validateDeviceFields(productData) {
   }
 
   return productData;
+
+  
 }
